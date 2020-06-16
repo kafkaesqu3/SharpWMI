@@ -139,6 +139,9 @@ USAGE:
   List processes:
     SharpWMI.exe action=ps [computername=HOST[,HOST2,...]]
 
+  List installed programs:
+    SharpWMI.exe action=products [computername=HOST[,HOST2,...]]
+
   Terminate process (first found):
     SharpWMI.exe action=terminate process=PID|name [computername=HOST[,HOST2,...]]
 
@@ -531,9 +534,10 @@ EXAMPLES:
             }
         }
 
-        static void GetProcesses(string computerName, string username, string password)
+        static void GetProcesses(string computerName, string username, string password, string format)
         {
             var scope = new ManagementScope();
+            
             string r = ConnectToWMI(ref scope, computerName, username, password, "root\\cimv2");
             if (r.Length > 0)
             {
@@ -553,6 +557,7 @@ EXAMPLES:
                     System.Management.PropertyDataCollection props = result.Properties;
                     var ps = new Dictionary<string, string>();
 
+                    ps["CSName"] = result.GetPropertyValue("CSName")?.ToString();
                     ps["ProcessId"] = result.GetPropertyValue("ProcessId")?.ToString();
                     ps["Name"] = result.GetPropertyValue("Name")?.ToString();
                     ps["CommandLine"] = result.GetPropertyValue("CommandLine")?.ToString();
@@ -571,7 +576,14 @@ EXAMPLES:
                     { 
                     }
 
-                    Console.WriteLine("{0,6} | {1,30} | {2, 25} | {3}", ps["ProcessId"], ps["Name"], ps["Owner"], ps["CommandLine"]);
+                    if (format == "csv")
+                    {
+                        Console.WriteLine("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\"", ps["CSName"], ps["ProcessId"], ps["Name"], ps["Owner"], ps["CommandLine"]);
+                    }
+                    else
+                    {
+                        Console.WriteLine("{0} | {1,6} | {2,30} | {3, 25} | {4}", ps["CSName"], ps["ProcessId"], ps["Name"], ps["Owner"], ps["CommandLine"]);
+                    }
                 }
             }
             catch (Exception ex)
@@ -580,6 +592,51 @@ EXAMPLES:
             }
         }
 
+        static void GetInstalledPrograms(string computerName, string username, string password, string format)
+        {
+            var scope = new ManagementScope();
+
+            string r = ConnectToWMI(ref scope, computerName, username, password, "root\\cimv2");
+            if (r.Length > 0)
+            {
+                throw new Exception(r);
+            }
+
+            try
+            {
+                var wmiProcess = new ManagementClass(scope, new ManagementPath("Win32_Product"), new ObjectGetOptions());
+
+                ObjectQuery query = new ObjectQuery("SELECT * FROM Win32_Product");
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query);
+                ManagementObjectCollection data = searcher.Get();
+
+                foreach (ManagementObject result in data)
+                {
+                    System.Management.PropertyDataCollection props = result.Properties;
+                    var ps = new Dictionary<string, string>();
+
+                    ps["Node"] = computerName;
+                    ps["Name"] = result.GetPropertyValue("Name")?.ToString();
+                    ps["Vendor"] = result.GetPropertyValue("Vendor")?.ToString();
+                    ps["Version"] = result.GetPropertyValue("Version")?.ToString();
+
+
+                    if (format == "csv")
+                    {
+                        Console.WriteLine("\"{0}\",\"{1}\",\"{2}\",\"{3}\"", ps["Node"], ps["Name"], ps["Vendor"], ps["Version"]);
+                    } else
+                    {
+                        Console.WriteLine("{0} | {1,50} | {2,25} | {3, 12}", ps["Node"], ps["Name"], ps["Vendor"], ps["Version"]);
+                    }
+
+                    
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(String.Format("[!] Could not retrieve remote processes list! Exception: {0}", ex.ToString()));
+            }
+        }
         static void RemoteWMIQuery(string host, string wmiQuery, string wmiNameSpace, string username, string password)
         {
             if (wmiNameSpace == "")
@@ -615,13 +672,18 @@ EXAMPLES:
                 ManagementObjectCollection data = searcher.Get();
 
                 Console.WriteLine();
+                
+                //var propertyNames = properties.Cast<List>; 
+                //ToList().ForEach(i => i.DoStuff());
 
+                //Select(c => c.Name).Distinct().ToList();
                 foreach (ManagementObject result in data)
                 {
                     System.Management.PropertyDataCollection props = result.Properties;
+                    
                     foreach (System.Management.PropertyData prop in props)
                     {
-                        Console.WriteLine(String.Format("{0,30} : {1}", prop.Name, prop.Value));
+                        Console.WriteLine(String.Format(" {0,30} : {1}", prop.Name, prop.Value));
                     }
                     Console.WriteLine();
                 }
@@ -1757,7 +1819,16 @@ EXAMPLES:
                 arguments["computername"] = "localhost";
             }
 
-            if (arguments["action"] == "query")
+            string format = "normal";
+            if (arguments.ContainsKey("format")) {
+                if (arguments["format"] == "csv")
+                {
+                    format = "csv";
+                }
+            }
+            
+
+                if (arguments["action"] == "query")
             {
                 if (!arguments.ContainsKey("query"))
                 {
@@ -1834,7 +1905,13 @@ EXAMPLES:
                 string[] computerNames = arguments["computername"].Split(',');
                 foreach (string computerName in computerNames)
                 {
-                    GetLoggedOnUsers(computerName, username, password);
+                    try { 
+                        GetLoggedOnUsers(computerName, username, password);
+                    }
+                    catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
                 }
             }
             else if (arguments["action"] == "ps")
@@ -1842,7 +1919,30 @@ EXAMPLES:
                 string[] computerNames = arguments["computername"].Split(',');
                 foreach (string computerName in computerNames)
                 {
-                    GetProcesses(computerName, username, password);
+                    try
+                    {
+                        GetProcesses(computerName, username, password, format);
+                    } catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
+                    
+                }
+            }
+            else if (arguments["action"] == "product")
+            {
+                string[] computerNames = arguments["computername"].Split(',');
+                foreach (string computerName in computerNames)
+                {
+                    try
+                    {
+                        GetInstalledPrograms(computerName, username, password, format);
+                    }
+                    catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
+
                 }
             }
             else if (arguments["action"] == "getenv")
@@ -1853,7 +1953,13 @@ EXAMPLES:
                 string[] computerNames = arguments["computername"].Split(',');
                 foreach (string computerName in computerNames)
                 {
-                    GetEnvVar(varName, computerName, username, password);
+                    try { 
+                        GetEnvVar(varName, computerName, username, password);
+                    }
+                    catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
                 }
             }
             else if (arguments["action"] == "setenv")
@@ -1863,7 +1969,13 @@ EXAMPLES:
                     string[] computerNames = arguments["computername"].Split(',');
                     foreach (string computerName in computerNames)
                     {
-                        SetEnvVarValue(arguments["name"], arguments["value"], computerName, username, password);
+                        try { 
+                            SetEnvVarValue(arguments["name"], arguments["value"], computerName, username, password);
+                        }
+                        catch
+                        {
+                            Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                        }
                     }
                 }
                 else
@@ -1879,7 +1991,13 @@ EXAMPLES:
                     string[] computerNames = arguments["computername"].Split(',');
                     foreach (string computerName in computerNames)
                     {
-                        DelEnvVar(arguments["name"], computerName, username, password);
+                        try {
+                            DelEnvVar(arguments["name"], computerName, username, password);
+                        }
+                        catch
+                        {
+                            Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                        }
                     }
                 }
                 else
@@ -1895,7 +2013,13 @@ EXAMPLES:
                     string[] computerNames = arguments["computername"].Split(',');
                     foreach (string computerName in computerNames)
                     {
-                        TerminateProcesses(arguments["process"], computerName, username, password);
+                        try {
+                            TerminateProcesses(arguments["process"], computerName, username, password);
+                        }
+                        catch
+                        {
+                            Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                        }
                     }
                 }
                 else
@@ -1912,7 +2036,13 @@ EXAMPLES:
                     string[] computerNames = arguments["computername"].Split(',');
                     foreach (string computerName in computerNames)
                     {
-                        RemoteWMIFirewall(computerName, username, password);
+                        try {
+                            RemoteWMIFirewall(computerName, username, password);
+                        }
+                        catch
+                        {
+                            Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                        }
                     }
                 }
                 else
@@ -1951,7 +2081,13 @@ EXAMPLES:
                         eventName = arguments["eventname"];
                     }
 
-                    RemoteWMIExecuteVBS(computerName, eventName, username, password, payload, disableAmsi, triggerTimerAfter, scriptKillTimeout);
+                    try { 
+                        RemoteWMIExecuteVBS(computerName, eventName, username, password, payload, disableAmsi, triggerTimerAfter, scriptKillTimeout);
+                    }
+                    catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
                 }
             }
             else
