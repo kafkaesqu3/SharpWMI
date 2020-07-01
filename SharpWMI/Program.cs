@@ -637,6 +637,95 @@ EXAMPLES:
                 throw new Exception(String.Format("[!] Could not retrieve remote processes list! Exception: {0}", ex.ToString()));
             }
         }
+
+        static void GetNICs(string computerName, string username, string password, string format)
+        {
+            var scope = new ManagementScope();
+
+            string r = ConnectToWMI(ref scope, computerName, username, password, "root\\cimv2");
+            if (r.Length > 0)
+            {
+                throw new Exception(r);
+            }
+
+            try
+            {
+                var wmiProcess = new ManagementClass(scope, new ManagementPath("Win32_NetworkAdapterConfiguration"), new ObjectGetOptions());
+
+                ObjectQuery query = new ObjectQuery("SELECT * FROM Win32_NetworkAdapterConfiguration");
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query);
+                ManagementObjectCollection data = searcher.Get();
+
+                foreach (ManagementObject result in data)
+                {
+                    System.Management.PropertyDataCollection props = result.Properties;
+                    var results = new Dictionary<string, string>();
+                    //Description, IPAddress, IPSubnet,  DefaultIPGateway, MACAddress, DHCPServer, DNSDomain
+                    results["Node"] = computerName;
+                    results["Description"] = result.GetPropertyValue("Description")?.ToString();
+                    results["IPAddress"] = result.GetPropertyValue("IPAddress")?.ToString();
+                    var ip = result.GetPropertyValue("IPAddress");
+                    if (ip != null)
+                    {
+                        string[] arr = ((IEnumerable)ip).Cast<object>()
+                                 .Select(x => x.ToString())
+                                 .ToArray();
+                        results["IPAddress"] = string.Join(";", arr);
+                    } else
+                    {
+                        results["IPAddress"] = "";
+                    }
+                    
+
+                    var subnet = result.GetPropertyValue("IPSubnet");
+                    if (subnet != null)
+                    {
+                        string[] arr = ((IEnumerable)subnet).Cast<object>()
+                                 .Select(x => x.ToString())
+                                 .ToArray();
+                        results["IPSubnet"] = string.Join(";", arr);
+                    }
+                    else
+                    {
+                        results["IPSubnet"] = "";
+                    }
+
+                    results["DefaultIPGateway"] = result.GetPropertyValue("DefaultIPGateway")?.ToString();
+                    var gateway = result.GetPropertyValue("DefaultIPGateway");
+                    if (gateway != null)
+                    {
+                        string[] arr = ((IEnumerable)gateway).Cast<object>()
+                                 .Select(x => x.ToString())
+                                 .ToArray();
+                        results["DefaultIPGateway"] = string.Join(";", arr);
+                    }
+                    else
+                    {
+                        results["DefaultIPGateway"] = "";
+                    }
+                    results["MACAddress"] = result.GetPropertyValue("MACAddress")?.ToString();
+                    results["DHCPServer"] = result.GetPropertyValue("DHCPServer")?.ToString();
+                    results["DNSDomain"] = result.GetPropertyValue("DNSDomain")?.ToString();
+
+
+                    if (format == "csv")
+                    {
+                        Console.WriteLine("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\"", results["Node"], results["Description"], results["IPAddress"], results["IPSubnet"], results["DefaultIPGateway"], results["MACAddress"], results["DHCPServer"], results["DNSDomain"]);
+                    }
+                    else
+                    {
+                        Console.WriteLine("{0} | {1,20} | {2,25} | {3, 12} | {4, 12} | {5, 12} | {6, 12} | {7, 12}", results["Node"], results["Description"], results["IPAddress"], results["IPSubnet"], results["DefaultIPGateway"], results["MACAddress"], results["DHCPServer"], results["DNSDomain"]);
+                    }
+
+
+                }
+            }
+            catch (Exception exc)
+            {
+                throw new Exception(String.Format("[!] Could not retrieve remote processes list! Exception: {0}", exc.ToString()));
+            }
+        }
+
         static void RemoteWMIQuery(string host, string wmiQuery, string wmiNameSpace, string username, string password)
         {
             if (wmiNameSpace == "")
@@ -1937,6 +2026,22 @@ EXAMPLES:
                     try
                     {
                         GetInstalledPrograms(computerName, username, password, format);
+                    }
+                    catch
+                    {
+                        Console.WriteLine(String.Format("[!] Error retrieving results from {0}", computerName));
+                    }
+
+                }
+            }
+            else if (arguments["action"] == "ipconfig")
+            {
+                string[] computerNames = arguments["computername"].Split(',');
+                foreach (string computerName in computerNames)
+                {
+                    try
+                    {
+                        GetNICs(computerName, username, password, format);
                     }
                     catch
                     {
